@@ -2,23 +2,26 @@ import createLogger from 'vuex/dist/logger';
 import Vue from 'vue';
 import Vuex from 'vuex';
 import utils from '../services/utils';
-import contentState from './contentState';
-import syncedContent from './syncedContent';
 import content from './content';
+import contentState from './contentState';
+import contextMenu from './contextMenu';
+import data from './data';
+import discussion from './discussion';
+import explorer from './explorer';
 import file from './file';
 import findReplace from './findReplace';
 import folder from './folder';
-import publishLocation from './publishLocation';
-import syncLocation from './syncLocation';
-import data from './data';
-import discussion from './discussion';
 import layout from './layout';
-import explorer from './explorer';
 import modal from './modal';
 import notification from './notification';
 import queue from './queue';
+import syncedContent from './syncedContent';
 import userInfo from './userInfo';
 import workspace from './workspace';
+import locationTemplate from './locationTemplate';
+import emptyPublishLocation from '../data/empties/emptyPublishLocation';
+import emptySyncLocation from '../data/empties/emptySyncLocation';
+import constants from '../data/constants';
 
 Vue.use(Vuex);
 
@@ -26,42 +29,36 @@ const debug = NODE_ENV !== 'production';
 
 const store = new Vuex.Store({
   modules: {
-    contentState,
-    syncedContent,
     content,
+    contentState,
+    contextMenu,
+    data,
     discussion,
+    explorer,
     file,
     findReplace,
     folder,
-    publishLocation,
-    syncLocation,
-    data,
     layout,
-    explorer,
     modal,
     notification,
+    publishLocation: locationTemplate(emptyPublishLocation),
     queue,
+    syncedContent,
+    syncLocation: locationTemplate(emptySyncLocation),
     userInfo,
     workspace,
   },
   state: {
+    light: false,
     offline: false,
     lastOfflineCheck: 0,
     minuteCounter: 0,
     monetizeSponsor: false,
   },
-  getters: {
-    allItemMap: (state) => {
-      const result = {};
-      utils.types.forEach(type => Object.assign(result, state[type].itemMap));
-      return result;
-    },
-    isSponsor: (state, getters) => {
-      const sponsorToken = getters['workspace/sponsorToken'];
-      return state.monetizeSponsor || (sponsorToken && sponsorToken.isSponsor);
-    },
-  },
   mutations: {
+    setLight: (state, value) => {
+      state.light = value;
+    },
     setOffline: (state, value) => {
       state.offline = value;
     },
@@ -78,45 +75,107 @@ const store = new Vuex.Store({
       state.googleSponsor = value;
     },
   },
+  getters: {
+    allItemsById: (state) => {
+      const result = {};
+      constants.types.forEach(type => Object.assign(result, state[type].itemsById));
+      return result;
+    },
+    pathsByItemId: (state, getters) => {
+      const result = {};
+      const processNode = (node, parentPath = '') => {
+        let path = parentPath;
+        if (node.item.id) {
+          path += node.item.name;
+          if (node.isTrash) {
+            path = '.stackedit-trash/';
+          } else if (node.isFolder) {
+            path += '/';
+          }
+          result[node.item.id] = path;
+        }
+
+        if (node.isFolder) {
+          node.folders.forEach(child => processNode(child, path));
+          node.files.forEach(child => processNode(child, path));
+        }
+      };
+
+      processNode(getters['explorer/rootNode']);
+      return result;
+    },
+    itemsByPath: (state, { allItemsById, pathsByItemId }) => {
+      const result = {};
+      Object.entries(pathsByItemId).forEach(([id, path]) => {
+        const items = result[path] || [];
+        items.push(allItemsById[id]);
+        result[path] = items;
+      });
+      return result;
+    },
+    gitPathsByItemId: (state, { allItemsById, pathsByItemId }) => {
+      const result = {};
+      Object.entries(allItemsById).forEach(([id, item]) => {
+        if (item.type === 'data') {
+          result[id] = `.stackedit-data/${id}.json`;
+        } else if (item.type === 'file') {
+          const filePath = pathsByItemId[id];
+          result[id] = `${filePath}.md`;
+          result[`${id}/content`] = `/${filePath}.md`;
+        } else if (item.type === 'content') {
+          const [fileId] = id.split('/');
+          const filePath = pathsByItemId[fileId];
+          result[fileId] = `${filePath}.md`;
+          result[id] = `/${filePath}.md`;
+        } else if (item.type === 'folder') {
+          result[id] = pathsByItemId[id];
+        } else if (item.type === 'syncLocation' || item.type === 'publishLocation') {
+          // locations are stored as paths
+          const encodedItem = utils.encodeBase64(utils.serializeObject({
+            ...item,
+            id: undefined,
+            type: undefined,
+            fileId: undefined,
+            hash: undefined,
+          }), true);
+          const extension = item.type === 'syncLocation' ? 'sync' : 'publish';
+          result[id] = `${pathsByItemId[item.fileId]}.${encodedItem}.${extension}`;
+        }
+      });
+      return result;
+    },
+    itemIdsByGitPath: (state, { gitPathsByItemId }) => {
+      const result = {};
+      Object.entries(gitPathsByItemId).forEach(([id, path]) => {
+        result[path] = id;
+      });
+      return result;
+    },
+    itemsByGitPath: (state, { allItemsById, gitPathsByItemId }) => {
+      const result = {};
+      Object.entries(gitPathsByItemId).forEach(([id, path]) => {
+        const item = allItemsById[id];
+        if (item) {
+          result[path] = item;
+        }
+      });
+      return result;
+    },
+    isSponsor: ({ light, monetizeSponsor }, getters) => {
+      const sponsorToken = getters['workspace/sponsorToken'];
+      return light || monetizeSponsor || (sponsorToken && sponsorToken.isSponsor);
+    },
+  },
   actions: {
     setOffline: ({ state, commit, dispatch }, value) => {
       if (state.offline !== value) {
         commit('setOffline', value);
         if (state.offline) {
-          return Promise.reject('You are offline.');
+          return Promise.reject(new Error('You are offline.'));
         }
         dispatch('notification/info', 'You are back online!');
       }
       return Promise.resolve();
-    },
-    createFile({ state, getters, commit }, desc = {}) {
-      const id = utils.uid();
-      commit('content/setItem', {
-        id: `${id}/content`,
-        text: utils.sanitizeText(desc.text || getters['data/computedSettings'].newFileContent),
-        properties: utils.sanitizeText(
-          desc.properties || getters['data/computedSettings'].newFileProperties),
-        discussions: desc.discussions || {},
-        comments: desc.comments || {},
-      });
-      commit('file/setItem', {
-        id,
-        name: utils.sanitizeName(desc.name),
-        parentId: desc.parentId || null,
-      });
-      return Promise.resolve(state.file.itemMap[id]);
-    },
-    deleteFile({ getters, commit }, fileId) {
-      commit('file/deleteItem', fileId);
-      commit('content/deleteItem', `${fileId}/content`);
-      commit('syncedContent/deleteItem', `${fileId}/syncedContent`);
-      commit('contentState/deleteItem', `${fileId}/contentState`);
-      getters['syncLocation/items']
-        .filter(item => item.fileId === fileId)
-        .forEach(item => commit('syncLocation/deleteItem', item.id));
-      getters['publishLocation/items']
-        .filter(item => item.fileId === fileId)
-        .forEach(item => commit('publishLocation/deleteItem', item.id));
     },
   },
   strict: debug,

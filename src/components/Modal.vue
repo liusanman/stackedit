@@ -1,43 +1,15 @@
 <template>
-  <div class="modal" @keyup.esc="onEscape" @keydown.tab="onTab">
-    <file-properties-modal v-if="config.type === 'fileProperties'"></file-properties-modal>
-    <settings-modal v-else-if="config.type === 'settings'"></settings-modal>
-    <templates-modal v-else-if="config.type === 'templates'"></templates-modal>
-    <about-modal v-else-if="config.type === 'about'"></about-modal>
-    <html-export-modal v-else-if="config.type === 'htmlExport'"></html-export-modal>
-    <pdf-export-modal v-else-if="config.type === 'pdfExport'"></pdf-export-modal>
-    <pandoc-export-modal v-else-if="config.type === 'pandocExport'"></pandoc-export-modal>
-    <link-modal v-else-if="config.type === 'link'"></link-modal>
-    <image-modal v-else-if="config.type === 'image'"></image-modal>
-    <sync-management-modal v-else-if="config.type === 'syncManagement'"></sync-management-modal>
-    <publish-management-modal v-else-if="config.type === 'publishManagement'"></publish-management-modal>
-    <workspace-management-modal v-else-if="config.type === 'workspaceManagement'"></workspace-management-modal>
-    <sponsor-modal v-else-if="config.type === 'sponsor'"></sponsor-modal>
-    <!-- Providers -->
-    <google-photo-modal v-else-if="config.type === 'googlePhoto'"></google-photo-modal>
-    <google-drive-account-modal v-else-if="config.type === 'googleDriveAccount'"></google-drive-account-modal>
-    <google-drive-save-modal v-else-if="config.type === 'googleDriveSave'"></google-drive-save-modal>
-    <google-drive-workspace-modal v-else-if="config.type === 'googleDriveWorkspace'"></google-drive-workspace-modal>
-    <google-drive-publish-modal v-else-if="config.type === 'googleDrivePublish'"></google-drive-publish-modal>
-    <dropbox-account-modal v-else-if="config.type === 'dropboxAccount'"></dropbox-account-modal>
-    <dropbox-save-modal v-else-if="config.type === 'dropboxSave'"></dropbox-save-modal>
-    <dropbox-publish-modal v-else-if="config.type === 'dropboxPublish'"></dropbox-publish-modal>
-    <github-account-modal v-else-if="config.type === 'githubAccount'"></github-account-modal>
-    <github-open-modal v-else-if="config.type === 'githubOpen'"></github-open-modal>
-    <github-save-modal v-else-if="config.type === 'githubSave'"></github-save-modal>
-    <github-publish-modal v-else-if="config.type === 'githubPublish'"></github-publish-modal>
-    <gist-sync-modal v-else-if="config.type === 'gistSync'"></gist-sync-modal>
-    <gist-publish-modal v-else-if="config.type === 'gistPublish'"></gist-publish-modal>
-    <wordpress-publish-modal v-else-if="config.type === 'wordpressPublish'"></wordpress-publish-modal>
-    <blogger-publish-modal v-else-if="config.type === 'bloggerPublish'"></blogger-publish-modal>
-    <blogger-page-publish-modal v-else-if="config.type === 'bloggerPagePublish'"></blogger-page-publish-modal>
-    <zendesk-account-modal v-else-if="config.type === 'zendeskAccount'"></zendesk-account-modal>
-    <zendesk-publish-modal v-else-if="config.type === 'zendeskPublish'"></zendesk-publish-modal>
+  <div class="modal" v-if="config" @keydown.esc.stop="onEscape" @keydown.tab="onTab" @focusin="onFocusInOut" @focusout="onFocusInOut">
+    <div class="modal__sponsor-banner" v-if="!isSponsor">
+      StackEdit is <a class="not-tabbable" target="_blank" href="https://github.com/benweet/stackedit/">open source</a>, please consider
+      <a class="not-tabbable" href="javascript:void(0)" @click="sponsor">sponsoring</a> for just $5.
+    </div>
+    <component v-if="currentModalComponent" :is="currentModalComponent"></component>
     <modal-inner v-else aria-label="Dialog">
-      <div class="modal__content" v-html="config.content"></div>
+      <div class="modal__content" v-html="simpleModal.contentHtml(config)"></div>
       <div class="modal__button-bar">
-        <button v-if="config.rejectText" class="button" @click="config.reject()">{{config.rejectText}}</button>
-        <button v-if="config.resolveText" class="button" @click="config.resolve()">{{config.resolveText}}</button>
+        <button class="button" v-if="simpleModal.rejectText" @click="config.reject()">{{simpleModal.rejectText}}</button>
+        <button class="button button--resolve" v-if="simpleModal.resolveText" @click="config.resolve()">{{simpleModal.resolveText}}</button>
       </div>
     </modal-inner>
   </div>
@@ -45,7 +17,12 @@
 
 <script>
 import { mapGetters } from 'vuex';
+import simpleModals from '../data/simpleModals';
 import editorSvc from '../services/editorSvc';
+import syncSvc from '../services/syncSvc';
+import googleHelper from '../services/providers/helpers/googleHelper';
+import store from '../store';
+
 import ModalInner from './modals/common/ModalInner';
 import FilePropertiesModal from './modals/FilePropertiesModal';
 import SettingsModal from './modals/SettingsModal';
@@ -73,16 +50,24 @@ import DropboxPublishModal from './modals/providers/DropboxPublishModal';
 import GithubAccountModal from './modals/providers/GithubAccountModal';
 import GithubOpenModal from './modals/providers/GithubOpenModal';
 import GithubSaveModal from './modals/providers/GithubSaveModal';
+import GithubWorkspaceModal from './modals/providers/GithubWorkspaceModal';
 import GithubPublishModal from './modals/providers/GithubPublishModal';
 import GistSyncModal from './modals/providers/GistSyncModal';
 import GistPublishModal from './modals/providers/GistPublishModal';
+import GitlabAccountModal from './modals/providers/GitlabAccountModal';
+import GitlabOpenModal from './modals/providers/GitlabOpenModal';
+import GitlabPublishModal from './modals/providers/GitlabPublishModal';
+import GitlabSaveModal from './modals/providers/GitlabSaveModal';
+import GitlabWorkspaceModal from './modals/providers/GitlabWorkspaceModal';
 import WordpressPublishModal from './modals/providers/WordpressPublishModal';
 import BloggerPublishModal from './modals/providers/BloggerPublishModal';
 import BloggerPagePublishModal from './modals/providers/BloggerPagePublishModal';
 import ZendeskAccountModal from './modals/providers/ZendeskAccountModal';
 import ZendeskPublishModal from './modals/providers/ZendeskPublishModal';
+import CouchdbWorkspaceModal from './modals/providers/CouchdbWorkspaceModal';
+import CouchdbCredentialsModal from './modals/providers/CouchdbCredentialsModal';
 
-const getTabbables = container => container.querySelectorAll('a[href], button, .textfield')
+const getTabbables = container => container.querySelectorAll('a[href], button, .textfield, input[type=checkbox]')
   // Filter enabled and visible element
   .cl_filter(el => !el.disabled && el.offsetParent !== null && !el.classList.contains('not-tabbable'));
 
@@ -114,19 +99,59 @@ export default {
     GithubAccountModal,
     GithubOpenModal,
     GithubSaveModal,
+    GithubWorkspaceModal,
     GithubPublishModal,
     GistSyncModal,
     GistPublishModal,
+    GitlabAccountModal,
+    GitlabOpenModal,
+    GitlabPublishModal,
+    GitlabSaveModal,
+    GitlabWorkspaceModal,
     WordpressPublishModal,
     BloggerPublishModal,
     BloggerPagePublishModal,
     ZendeskAccountModal,
     ZendeskPublishModal,
+    CouchdbWorkspaceModal,
+    CouchdbCredentialsModal,
   },
-  computed: mapGetters('modal', [
-    'config',
-  ]),
+  computed: {
+    ...mapGetters([
+      'isSponsor',
+    ]),
+    ...mapGetters('modal', [
+      'config',
+    ]),
+    currentModalComponent() {
+      if (this.config.type) {
+        let componentName = this.config.type[0].toUpperCase();
+        componentName += this.config.type.slice(1);
+        componentName += 'Modal';
+        if (this.$options.components[componentName]) {
+          return componentName;
+        }
+      }
+      return null;
+    },
+    simpleModal() {
+      return simpleModals[this.config.type] || {};
+    },
+  },
   methods: {
+    async sponsor() {
+      try {
+        if (!store.getters['workspace/sponsorToken']) {
+          // User has to sign in
+          await store.dispatch('modal/open', 'signInForSponsorship');
+          await googleHelper.signin();
+          syncSvc.requestSync();
+        }
+        if (!store.getters.isSponsor) {
+          await store.dispatch('modal/open', 'sponsor');
+        }
+      } catch (e) { /* cancel */ }
+    },
     onEscape() {
       this.config.reject();
       editorSvc.clEditor.focus();
@@ -144,42 +169,38 @@ export default {
       }
     },
     onFocusInOut(evt) {
-      const isFocusIn = evt.type === 'focusin';
-      if (evt.target.parentNode && evt.target.parentNode.parentNode) {
+      const { parentNode } = evt.target;
+      if (parentNode && parentNode.parentNode) {
         // Focus effect
-        if (evt.target.parentNode.classList.contains('form-entry__field') &&
-          evt.target.parentNode.parentNode.classList.contains('form-entry')) {
-          evt.target.parentNode.parentNode.classList.toggle('form-entry--focused', isFocusIn);
+        if (parentNode.classList.contains('form-entry__field')
+          && parentNode.parentNode.classList.contains('form-entry')) {
+          parentNode.parentNode.classList.toggle(
+            'form-entry--focused',
+            evt.type === 'focusin',
+          );
         }
-      }
-      if (isFocusIn && this.config) {
-        const modalInner = this.$el.querySelector('.modal__inner-2');
-        let target = evt.target;
-        while (target) {
-          if (target === modalInner) {
-            return;
-          }
-          target = target.parentNode;
-        }
-        this.config.reject();
       }
     },
   },
   mounted() {
-    window.addEventListener('focusin', this.onFocusInOut);
-    window.addEventListener('focusout', this.onFocusInOut);
-    const tabbables = getTabbables(this.$el);
-    tabbables[0].focus();
-  },
-  destroyed() {
-    window.removeEventListener('focusin', this.onFocusInOut);
-    window.removeEventListener('focusout', this.onFocusInOut);
+    this.$watch(
+      () => this.config,
+      (isOpen) => {
+        if (isOpen) {
+          const tabbables = getTabbables(this.$el);
+          if (tabbables[0]) {
+            tabbables[0].focus();
+          }
+        }
+      },
+      { immediate: true },
+    );
   },
 };
 </script>
 
 <style lang="scss">
-@import 'common/variables.scss';
+@import '../styles/variables.scss';
 
 .modal {
   position: absolute;
@@ -188,9 +209,21 @@ export default {
   background-color: rgba(160, 160, 160, 0.5);
   overflow: auto;
 
-  hr {
-    margin: 0.5em 0;
+  p {
+    line-height: 1.5;
   }
+}
+
+.modal__sponsor-banner {
+  position: fixed;
+  z-index: 1;
+  width: 100%;
+  color: darken($error-color, 10%);
+  background-color: transparentize(lighten($error-color, 33%), 0.075);
+  font-size: 0.9em;
+  line-height: 1.33;
+  text-align: center;
+  padding: 0.25em 1em;
 }
 
 .modal__inner-1 {
@@ -203,7 +236,7 @@ export default {
 .modal__inner-2 {
   margin: 40px 10px 100px;
   background-color: #f8f8f8;
-  padding: 40px 50px 30px;
+  padding: 50px 50px 40px;
   border-radius: $border-radius-base;
   position: relative;
   overflow: hidden;
@@ -215,7 +248,7 @@ export default {
     left: 0;
     height: $border-radius-base;
     width: 100%;
-    background-image: linear-gradient(to left, #ffe600, #ffe600 25%, #bbd500 25%, #bbd500 50%, #ff8a00 50%, #ff8a00 75%, #75b7fd 75%);
+    background-image: linear-gradient(to left, #ffd700, #ffd700 23%, #a5c700 27%, #a5c700 48%, #ff8a00 52%, #ff8a00 73%, #66aefd 77%);
   }
 
   &::after {
@@ -225,7 +258,7 @@ export default {
     left: 0;
     height: $border-radius-base;
     width: 100%;
-    background-image: linear-gradient(to right, #ffe600, #ffe600 25%, #bbd500 25%, #bbd500 50%, #ff8a00 50%, #ff8a00 75%, #75b7fd 75%);
+    background-image: linear-gradient(to right, #ffd700, #ffd700 23%, #a5c700 27%, #a5c700 48%, #ff8a00 52%, #ff8a00 73%, #66aefd 77%);
   }
 }
 
@@ -236,15 +269,28 @@ export default {
 
 .modal__image {
   float: left;
-  width: 64px;
-  height: 64px;
-  margin: 1.5em 1.5em 0.5em 0;
+  width: 60px;
+  height: 60px;
+  margin: 1.5em 1.2em 0.5em 0;
 
   & + *::after {
     content: '';
     display: block;
     clear: both;
   }
+}
+
+.modal__title {
+  font-weight: bold;
+  font-size: 1.5rem;
+  line-height: 1.4;
+  margin-top: 2.5rem;
+}
+
+.modal__sub-title {
+  opacity: 0.6;
+  font-size: 0.75rem;
+  margin-bottom: 1.5rem;
 }
 
 .modal__error {
@@ -256,11 +302,24 @@ export default {
   border-radius: $border-radius-base;
   margin: 1.2em 0;
   padding: 0.75em 1.25em;
+  font-size: 0.95em;
+  line-height: 1.6;
+
+  pre {
+    line-height: 1.5;
+  }
+}
+
+.modal__info--multiline {
+  padding-top: 0.1em;
+  padding-bottom: 0.1em;
 }
 
 .modal__button-bar {
-  margin-top: 1.75rem;
-  text-align: right;
+  margin-top: 2rem;
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
 }
 
 .form-entry {
@@ -270,7 +329,7 @@ export default {
 .form-entry__label {
   display: block;
   font-size: 0.9rem;
-  color: #a0a0a0;
+  color: #808080;
 
   .form-entry--focused & {
     color: darken($link-color, 10%);
@@ -281,18 +340,24 @@ export default {
   }
 }
 
+.form-entry__label-info {
+  font-size: 0.75rem;
+}
+
 .form-entry__field {
-  border: 1px solid #d8d8d8;
+  border: 1px solid #b0b0b0;
   border-radius: $border-radius-base;
   position: relative;
   overflow: hidden;
 
   .form-entry--focused & {
     border-color: $link-color;
+    box-shadow: 0 0 0 2.5px transparentize($link-color, 0.67);
   }
 
   .form-entry--error & {
     border-color: $error-color;
+    box-shadow: 0 0 0 2.5px transparentize($error-color, 0.67);
   }
 }
 
@@ -328,7 +393,7 @@ export default {
 
 .form-entry__info {
   font-size: 0.75em;
-  opacity: 0.5;
+  opacity: 0.67;
   line-height: 1.4;
   margin: 0.25em 0;
 }
@@ -365,18 +430,12 @@ export default {
 
   &:hover,
   &:focus {
-    background-color: rgba(0, 0, 0, 0.067);
+    background-color: rgba(0, 0, 0, 0.05);
   }
 }
 
 .tabs__tab--active > a {
   border-bottom: 2px solid $link-color;
   color: inherit;
-  cursor: auto;
-
-  &:hover,
-  &:focus {
-    background-color: transparent;
-  }
 }
 </style>

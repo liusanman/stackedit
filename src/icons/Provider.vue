@@ -16,12 +16,16 @@ export default {
           return 'google-drive';
         case 'googlePhotos':
           return 'google-photos';
-        case 'dropboxRestricted':
-          return 'dropbox';
+        case 'githubWorkspace':
+          return 'github';
         case 'gist':
           return 'github';
+        case 'gitlabWorkspace':
+          return 'gitlab';
         case 'bloggerPage':
           return 'blogger';
+        case 'couchdbWorkspace':
+          return 'couchdb';
         default:
           return this.providerId;
       }
@@ -55,6 +59,10 @@ export default {
   background-image: url(../assets/iconGithub.svg);
 }
 
+.icon-provider--gitlab {
+  background-image: url(../assets/iconGitlab.svg);
+}
+
 .icon-provider--dropbox {
   background-image: url(../assets/iconDropbox.svg);
 }
@@ -69,5 +77,9 @@ export default {
 
 .icon-provider--zendesk {
   background-image: url(../assets/iconZendesk.svg);
+}
+
+.icon-provider--couchdb {
+  background-image: url(../assets/iconCouchdb.svg);
 }
 </style>

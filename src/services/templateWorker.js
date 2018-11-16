@@ -59,9 +59,9 @@ const whiteList = {
   undefined: 1,
   safeEval: 1,
   close: 1,
-  Handlebars: 1,
 };
 
+/* eslint-disable no-restricted-globals */
 let global = self;
 while (global !== Object.prototype) {
   Object.getOwnPropertyNames(global).forEach((prop) => { // eslint-disable-line no-loop-func
@@ -80,6 +80,7 @@ while (global !== Object.prototype) {
   });
   global = Object.getPrototypeOf(global);
 }
+self.Handlebars = Handlebars;
 
 function safeEval(code) {
   eval(`"use strict";\n${code}`); // eslint-disable-line no-eval
